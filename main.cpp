@@ -19,15 +19,19 @@ double z = -2.5;
 
 std::string path = "/Users/rohansawhney/Desktop/developer/C++/deformation/bunny.obj";
 Mesh mesh;
+bool dragging = false;
 bool success = true;
+int handleIndex = -1;
+int iterations = 3;
 
 void printInstructions()
 {
-    std::cerr << "space: toggle between meshes\n"
-              << "r: reload mesh\n"
+    std::cerr << "Drag mouse to deform\n"
+              << "→/←: increase/decrease iterations\n"
               << "↑/↓: move in/out\n"
               << "w/s: move up/down\n"
               << "a/d: move left/right\n"
+              << "r: reload mesh\n"
               << "escape: exit program\n"
               << std::endl;
 }
@@ -38,10 +42,24 @@ void init()
     glEnable(GL_DEPTH_TEST);
 }
 
+void setHandleAndAnchors()
+{
+    double maxY = -INFINITY;
+    for (VertexIter v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
+        if (v->position.y() < -0.4) v->anchor = true;
+        if (maxY < v->position.y()) {
+            maxY = v->position.y();
+            handleIndex = v->index;
+        }
+    }
+    
+    mesh.vertices[handleIndex].handle = true;
+}
+
 void draw()
 {
     glColor4f(0.0, 0.0, 1.0, 0.5);
-    
+    glLineWidth(1.0);
     glBegin(GL_LINES);
     for (EdgeCIter e = mesh.edges.begin(); e != mesh.edges.end(); e ++) {
         Eigen::Vector3d a = e->he->vertex->position;
@@ -52,6 +70,24 @@ void draw()
     }
     
     glEnd();
+    
+    for (VertexIter v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
+        if (v->handle) {
+            glColor4f(0.0, 1.0, 0.0, 0.5);
+            glPointSize(4.0);
+            glBegin(GL_POINTS);
+            glVertex3d(v->position.x(), v->position.y(), v->position.z());
+            glEnd();
+        }
+        
+        if (v->anchor) {
+            glColor4f(1.0, 0.0, 0.0, 0.5);
+            glPointSize(2.0);
+            glBegin(GL_POINTS);
+            glVertex3d(v->position.x(), v->position.y(), v->position.z());
+            glEnd();
+        }
+    }
 }
 
 void display()
@@ -78,14 +114,62 @@ void display()
     glutSwapBuffers();
 }
 
+void worldSpaceCoords(double& x, double& y, double z)
+{
+    GLdouble modelMatrix[16];
+    GLdouble projMatrix[16];
+    GLint viewport[4];
+    
+    glGetIntegerv(GL_VIEWPORT, viewport);
+    glGetDoublev(GL_MODELVIEW_MATRIX, modelMatrix);
+    glGetDoublev(GL_PROJECTION_MATRIX, projMatrix);
+    
+    GLdouble nx, ny, nz;
+    gluUnProject(x, viewport[1]+viewport[3]-y, 0, modelMatrix, projMatrix, viewport, &nx, &ny, &nz);
+    
+    GLdouble fx, fy, fz;
+    gluUnProject(x, viewport[1]+viewport[3]-y, 1, modelMatrix, projMatrix, viewport, &fx, &fy, &fz);
+    
+    if(nz == fz) return;
+    
+    GLfloat t = (nz - z) / (nz - fz);
+    x = nx + (fx - nx) * t;
+    y = ny + (fy - ny) * t;
+}
+
+void mouseMove(int x, int y)
+{
+    if (dragging) {
+        VertexIter v = mesh.vertices.begin() + handleIndex;
+        
+        double wx = x, wy = y;
+        worldSpaceCoords(wx, wy, v->position.z());
+        
+        v->position.x() = wx;
+        v->position.y() = wy;
+        mesh.deform(iterations);
+        
+        glutPostRedisplay();
+    }
+}
+
+void mousePressed(int button, int state, int x, int y)
+{
+    if (button == GLUT_LEFT_BUTTON) {
+        if (state == GLUT_DOWN) {
+            dragging = true;
+            
+        } else {
+            dragging = false;
+        }
+    }
+}
+
 void keyboard(unsigned char key, int x0, int y0)
 {
     switch (key) {
         case 27 :
             exit(0);
-        case ' ':
-            mesh.read(path);
-            break;
         case 'a':
             x -= 0.03;
             break;
@@ -100,6 +184,7 @@ void keyboard(unsigned char key, int x0, int y0)
             break;
         case 'r':
             mesh.read(path);
+            setHandleAndAnchors();
             break;
     }
     
@@ -115,7 +200,16 @@ void special(int i, int x0, int y0)
         case GLUT_KEY_DOWN:
             z -= 0.03;
             break;
+        case GLUT_KEY_LEFT:
+            if (iterations > 1) iterations --;
+            break;
+        case GLUT_KEY_RIGHT:
+            iterations ++;
+            break;
     }
+    
+    std::string title = "Deformation, iterations: " + std::to_string(iterations);
+    glutSetWindowTitle(title.c_str());
     
     glutPostRedisplay();
 }
@@ -123,14 +217,18 @@ void special(int i, int x0, int y0)
 int main(int argc, char** argv) {
     
     success = mesh.read(path);
-    
+    setHandleAndAnchors();
+
     printInstructions();
     glutInitWindowSize(gridX, gridY);
     glutInitDisplayMode(GLUT_RGB | GLUT_DOUBLE | GLUT_DEPTH);
     glutInit(&argc, argv);
-    glutCreateWindow("Deformation");
+    std::string title = "Deformation, iterations: " + std::to_string(iterations);
+    glutCreateWindow(title.c_str());
     init();
     glutDisplayFunc(display);
+    glutMouseFunc(mousePressed);
+    glutMotionFunc(mouseMove);
     glutKeyboardFunc(keyboard);
     glutSpecialFunc(special);
     glutMainLoop();

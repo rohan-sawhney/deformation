@@ -44,10 +44,11 @@ void Mesh::buildLaplacian(Eigen::SparseMatrix<double>& L)
     std::vector<Eigen::Triplet<double>> LTriplet;
     
     for (VertexCIter v = vertices.begin(); v != vertices.end(); v++) {
-        
-        HalfEdgeCIter he = v->he;
+    
         double sumCoefficients = 0.0;
         if (!v->anchor && !v->handle) {
+            
+            HalfEdgeCIter he = v->he;
             do {
                 // (cotA + cotB) / 2
                 double coefficient = 0.5 * (he->cotan() + he->flip->cotan());
@@ -84,10 +85,11 @@ void Mesh::setup()
     Eigen::SparseMatrix<double> L(v, v);
     buildLaplacian(L);
     
-    solver.compute(L);
+    LT = L.transpose();
+    solver.compute(LT*L);
 }
 
-void Mesh::computeRotationsSVD()
+void Mesh::computeRotations()
 {
     Eigen::Matrix3d id = Eigen::Matrix3d::Identity();
     for (VertexCIter v = vertices.begin(); v != vertices.end(); v++) {
@@ -110,13 +112,13 @@ void Mesh::computeRotationsSVD()
         } while (he != v->he);
         
         // compute covariance matrix
-        Eigen::Matrix3d S = P * P.transpose();
+        Eigen::MatrixXd S = P * P.transpose();
         
         // compute svd
-        Eigen::JacobiSVD<Eigen::Matrix3d> svd(S, Eigen::ComputeThinU | Eigen::ComputeThinV);
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(S, Eigen::ComputeThinU | Eigen::ComputeThinV);
         
-        Eigen::Matrix3d U = svd.matrixU();
-        Eigen::Matrix3d V = svd.matrixV();
+        Eigen::MatrixXd U = svd.matrixU();
+        Eigen::MatrixXd V = svd.matrixV();
         
         // compute determinant to determine the sign of the column of U corresponding to the smallest
         // singular value
@@ -127,38 +129,38 @@ void Mesh::computeRotationsSVD()
 
 void Mesh::deform(const int iterations)
 {
+    Eigen::MatrixXd b((int)vertices.size(), 3);
+    b.setZero();
+    
     for (int i = 0; i < iterations; i++) {
-        
         // build b
-        Eigen::VectorXd b((int)vertices.size(), 3);
         for (VertexCIter v = vertices.begin(); v != vertices.end(); v++) {
             
+            Eigen::Vector3d p = v->position;
+            
             if (!v->anchor && !v->handle) {
-                Eigen::Vector3d p = Eigen::Vector3d::Zero();
+                p.setZero();
                 HalfEdgeCIter he = v->he;
                 do {
                     VertexCIter v2 = he->flip->vertex;
-                    
                     p += 0.5 * weights(v->index, v2->index) *
                         ((rotations[v->index] + rotations[v2->index]) * (v->position - v2->position));
                     
                     he = he->flip->next;
                     
                 } while (he != v->he);
-                
-                b.row(v->index)[0] = p.x();
-                b.row(v->index)[1] = p.y();
-                b.row(v->index)[2] = p.z();
             }
+            
+            b.row(v->index) = p;
         }
-        
+    
         // update deformed positions
         for (int j = 0; j < 3; j++) {
-            deformedCoords.col(j) = solver.solve(b.col(j));
+            deformedCoords.col(j) = solver.solve(LT*b.col(j));
         }
         
         // compute rotations
-        if (iterations > 0) computeRotationsSVD();
+        if (iterations > 1) computeRotations();
     }
     
     // update positions

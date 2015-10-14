@@ -22,7 +22,7 @@ public:
     
     // deforms the mesh
     void deform(const int iterations);
-    
+        
     // member variables
     std::vector<HalfEdge> halfEdges;
     std::vector<Vertex> vertices;
@@ -43,12 +43,13 @@ private:
     void setup();
     
     // computes rotations using SVD
-    void computeRotationsSVD();
+    void computeRotations();
     
     // member variable
     Eigen::MatrixXd weights;
     Eigen::MatrixXd deformedCoords;
     std::vector<Eigen::Matrix3d> rotations;
+    Eigen::SparseMatrix<double> LT;
     Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
 };
 
