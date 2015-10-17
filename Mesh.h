@@ -6,6 +6,7 @@
 #include "Edge.h"
 #include "Face.h"
 #include "HalfEdge.h"
+#include <unordered_map>
 #include <Eigen/SparseCore>
 #include <Eigen/SparseCholesky>
 
@@ -46,11 +47,12 @@ private:
     void computeRotations();
     
     // member variable
-    Eigen::MatrixXd weights;
+    std::unordered_map<int, double> weights;
     Eigen::MatrixXd deformedCoords;
     std::vector<Eigen::Matrix3d> rotations;
     Eigen::SparseMatrix<double> LT;
     Eigen::SimplicialCholesky<Eigen::SparseMatrix<double>> solver;
+    bool didSetup;
 };
 
 #endif

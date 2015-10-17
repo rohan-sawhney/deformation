@@ -19,7 +19,7 @@ bool Mesh::read(const std::string& fileName)
     bool readSuccessful = false;
     if ((readSuccessful = MeshIO::read(in, *this))) {
         normalize();
-        setup();
+        didSetup = false;
     }
     
     return readSuccessful;
@@ -51,13 +51,15 @@ void Mesh::buildLaplacian(Eigen::SparseMatrix<double>& L)
             HalfEdgeCIter he = v->he;
             do {
                 // (cotA + cotB) / 2
-                double coefficient = 0.5 * (he->cotan() + he->flip->cotan());
+                double coefficient = (he->cotan() + he->flip->cotan()) / 2.0;
+                coefficient = std::max(0.0, coefficient);
+                weights[he->edge->index] = coefficient;
                 sumCoefficients += coefficient;
                 
                 LTriplet.push_back(Eigen::Triplet<double>(v->index, he->flip->vertex->index, -coefficient));
-                weights(v->index, he->flip->vertex->index) = coefficient;
                 
                 he = he->flip->next;
+                
             } while (he != v->he);
             
         } else {
@@ -73,8 +75,14 @@ void Mesh::buildLaplacian(Eigen::SparseMatrix<double>& L)
 void Mesh::setup()
 {
     int v = (int)vertices.size();
-    weights.resize(v, v);
-    weights.setZero();
+    
+    weights.clear();
+    
+    Eigen::SparseMatrix<double> L(v, v);
+    buildLaplacian(L);
+    
+    LT = L.transpose();
+    solver.compute(LT*L);
     
     deformedCoords.resize(v, 3);
     deformedCoords.setZero();
@@ -82,11 +90,7 @@ void Mesh::setup()
     rotations.clear();
     rotations.resize(v, Eigen::Matrix3d::Identity());
     
-    Eigen::SparseMatrix<double> L(v, v);
-    buildLaplacian(L);
-    
-    LT = L.transpose();
-    solver.compute(LT*L);
+    didSetup = true;
 }
 
 void Mesh::computeRotations()
@@ -103,7 +107,7 @@ void Mesh::computeRotations()
         do {
             VertexCIter v2 = he->flip->vertex;
             
-            P.col(column) = (v->position - v2->position) * weights(v->index, v2->index);
+            P.col(column) = (v->reference - v2->reference) * weights[he->edge->index];
             Pdash.col(column) = deformedCoords.row(v->index) - deformedCoords.row(v2->index);
             
             column ++;
@@ -112,60 +116,63 @@ void Mesh::computeRotations()
         } while (he != v->he);
         
         // compute covariance matrix
-        Eigen::MatrixXd S = P * P.transpose();
+        Eigen::MatrixXd S = P * Pdash.transpose();
         
         // compute svd
         Eigen::JacobiSVD<Eigen::MatrixXd> svd(S, Eigen::ComputeThinU | Eigen::ComputeThinV);
         
-        Eigen::MatrixXd U = svd.matrixU();
+        Eigen::MatrixXd UT = svd.matrixU().transpose();
         Eigen::MatrixXd V = svd.matrixV();
         
         // compute determinant to determine the sign of the column of U corresponding to the smallest
         // singular value
-        id(2, 2) = (V * U.transpose()).determinant();
-        rotations[v->index] = V * id * U.transpose();
+        id(2, 2) = (V * UT).determinant();
+        rotations[v->index] = V * id * UT;
     }
 }
 
 void Mesh::deform(const int iterations)
 {
-    Eigen::MatrixXd b((int)vertices.size(), 3);
-    b.setZero();
+    if (!didSetup) setup();
     
+    Eigen::MatrixXd b((int)vertices.size(), 3);    
     for (int i = 0; i < iterations; i++) {
         // build b
         for (VertexCIter v = vertices.begin(); v != vertices.end(); v++) {
             
-            Eigen::Vector3d p = v->position;
-            
             if (!v->anchor && !v->handle) {
-                p.setZero();
+                
+                Eigen::Vector3d p = Eigen::Vector3d::Zero();
                 HalfEdgeCIter he = v->he;
                 do {
                     VertexCIter v2 = he->flip->vertex;
-                    p += 0.5 * weights(v->index, v2->index) *
-                        ((rotations[v->index] + rotations[v2->index]) * (v->position - v2->position));
+                    p += ((rotations[v->index] + rotations[v2->index]) * (v->reference - v2->reference) *
+                          weights[he->edge->index] / 2.0);
                     
                     he = he->flip->next;
                     
                 } while (he != v->he);
-            }
             
-            b.row(v->index) = p;
-        }
-    
-        // update deformed positions
-        for (int j = 0; j < 3; j++) {
-            deformedCoords.col(j) = solver.solve(LT*b.col(j));
+                b.row(v->index) = p;
+                
+            } else {
+                b.row(v->index) = v->position;
+            }
         }
         
-        // compute rotations
-        if (iterations > 1) computeRotations();
+        // update deformed positions
+        b = LT*b;
+        for (int j = 0; j < 3; j++) {
+            deformedCoords.col(j) = solver.solve(b.col(j));
+        }
+        
+        // compute rotations after initial naive laplacian guess
+        if (i > 0) computeRotations();
     }
-    
+
     // update positions
     for (VertexIter v = vertices.begin(); v != vertices.end(); v++) {
-        v->position = deformedCoords.row(v->index);
+        v->position = deformedCoords.row(v->index).transpose();
     }
 }
 

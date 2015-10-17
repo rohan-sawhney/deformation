@@ -11,6 +11,9 @@ public:
     // location in 3d
     Eigen::Vector3d position;
     
+    // reference position
+    Eigen::Vector3d reference;
+    
     // id between 0 and |V|-1
     int index;
     
@@ -25,6 +28,9 @@ public:
     
     // checks if vertex is contained in any edge or face
     bool isIsolated() const;
+    
+    // returns area of barycentric dual cell associated with the vertex
+    double dualArea() const;
 };
 
 #endif

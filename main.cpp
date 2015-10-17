@@ -44,6 +44,12 @@ void init()
 
 void setHandleAndAnchors()
 {
+    for (VertexIter v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
+        v->reference = v->position;
+        v->anchor = false;
+        v->handle = false;
+    }
+    
     double maxY = -INFINITY;
     for (VertexIter v = mesh.vertices.begin(); v != mesh.vertices.end(); v++) {
         if (v->position.y() < -0.4) v->anchor = true;
@@ -105,7 +111,7 @@ void display()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     
-    gluLookAt(0, 0, z, x, y, 0, 0, 1, 0);
+    gluLookAt(0, 1, z, x, y, 0, 0, 1, 0);
     
     if (success) {
         draw();
