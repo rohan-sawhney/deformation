@@ -1,5 +1,5 @@
 # deformation
-Implements As-Rigid-As-Possible Surface Modeling by Sorkine et al. to deform models while minimizing stretching or shearing.
+Implements As-Rigid-As-Possible (ARAP) Surface Modeling by Sorkine et al. to deform models while minimizing stretching or shearing.
 
 ![](deformation.png)
 
